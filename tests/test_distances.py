@@ -228,6 +228,7 @@ def test_keypoint_vote(mock_obj, mock_det):
 
 def test_normalized_euclidean(mock_obj, mock_det):
     norm_e = create_normalized_mean_euclidean_distance(10, 10)
+    max_dist = np.sqrt(10**2 + 10**2)
 
     # perfect match
     det = mock_det([[1, 2], [3, 4]])
@@ -242,32 +243,32 @@ def test_normalized_euclidean(mock_obj, mock_det):
     # distance of 1 in 1 dimension of 1 point
     det = mock_det([[1, 2], [3, 4]])
     obj = mock_obj([[2, 2], [3, 4]])
-    np.testing.assert_almost_equal(norm_e(det, obj), 0.05)
+    np.testing.assert_almost_equal(norm_e(det, obj), 1 / (max_dist * 2))
 
     # distance of 2 in 1 dimension of 1 point
     det = mock_det([[1, 2], [3, 4]])
     obj = mock_obj([[3, 2], [3, 4]])
-    np.testing.assert_almost_equal(norm_e(det, obj), 0.1)
+    np.testing.assert_almost_equal(norm_e(det, obj), 2 / (max_dist * 2))
 
     # distance of 2 in 1 dimension of all points
     det = mock_det([[1, 2], [3, 4]])
     obj = mock_obj([[3, 2], [5, 4]])
-    np.testing.assert_almost_equal(norm_e(det, obj), 0.2)
+    np.testing.assert_almost_equal(norm_e(det, obj), 2 / max_dist)
 
     # distance of 2 in all dimensions of all points
     det = mock_det([[1, 2], [3, 4]])
     obj = mock_obj([[3, 4], [5, 6]])
-    np.testing.assert_almost_equal(norm_e(det, obj), np.sqrt(8) / 10)
+    np.testing.assert_almost_equal(norm_e(det, obj), 0.2)
 
     # distance of 1 in all dimensions of all points
     det = mock_det([[1, 2], [3, 4]])
     obj = mock_obj([[2, 3], [4, 5]])
-    np.testing.assert_almost_equal(norm_e(det, obj), np.sqrt(2) / 10)
+    np.testing.assert_almost_equal(norm_e(det, obj), 0.1)
 
     # negative difference
     det = mock_det([[1, 2], [3, 4]])
     obj = mock_obj([[-1, 2], [3, 4]])
-    np.testing.assert_almost_equal(norm_e(det, obj), 0.1)
+    np.testing.assert_almost_equal(norm_e(det, obj), 2 / (max_dist * 2))
 
     # negative equals
     det = mock_det([[-1, 2], [3, 4]])

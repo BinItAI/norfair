@@ -551,17 +551,19 @@ def create_normalized_mean_euclidean_distance(
         The distance funtion that must be passed to the Tracker.
     """
 
+    diagonal = np.sqrt(width**2 + height**2)
     def normalized__mean_euclidean_distance(
         detection: "Detection", tracked_object: "TrackedObject"
     ) -> float:
         """Normalized mean euclidean distance"""
-        # calculate distances and normalized it by width and height
+        # calculate raw distances
         difference = (detection.points - tracked_object.estimate).astype(float)
-        difference[:, 0] /= width
-        difference[:, 1] /= height
-
-        # calculate eucledean distance and average
-        return np.linalg.norm(difference, axis=1).mean()
+        # calculate raw euclidean distance (in pixels)
+        norm = np.linalg.norm(difference, axis=1)
+        # normalize by dividing by max disatnce (diagonal)
+        norm /= diagonal
+        # return avaerage
+        return norm.mean()
 
     return normalized__mean_euclidean_distance
 
