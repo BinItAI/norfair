@@ -52,6 +52,8 @@ class ScalarDistance(Distance):
         Distance function used to determine the pointwise distance between new candidates and objects.
         This function should take 2 input arguments, the first being a `Union[Detection, TrackedObject]`,
         and the second [TrackedObject][norfair.tracker.TrackedObject]. It has to return a `float` with the distance it calculates.
+    class_agnostic : bool
+        Whether distance should be computed between all object/candidate pairs (if true), or only ones with matching labels (false). Defaults to False.
     """
 
     def __init__(
@@ -60,8 +62,10 @@ class ScalarDistance(Distance):
             Callable[["Detection", "TrackedObject"], float],
             Callable[["TrackedObject", "TrackedObject"], float],
         ],
+        class_agnostic: bool = False,
     ):
         self.distance_function = distance_function
+        self.class_agnostic = class_agnostic
 
     def get_distances(
         self,
@@ -93,7 +97,7 @@ class ScalarDistance(Distance):
             return distance_matrix
         for c, candidate in enumerate(candidates):
             for o, obj in enumerate(objects):
-                if candidate.label != obj.label:
+                if not self.class_agnostic and candidate.label != obj.label:
                     if (candidate.label is None) or (obj.label is None):
                         print("\nThere are detections with and without label!")
                     continue
@@ -114,13 +118,17 @@ class VectorizedDistance(Distance):
         Distance function used to determine the distances between new candidates and objects.
         This function should take 2 input arguments, the first being a `np.ndarray` and the second
         `np.ndarray`. It has to return a `np.ndarray` with the distance matrix it calculates.
+    class_agnostic : bool
+        Whether distance should be computed between all object/candidate pairs (if true), or only ones with matching labels (false). Defaults to False.
     """
 
     def __init__(
         self,
         distance_function: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        class_agnostic: bool = False,
     ):
         self.distance_function = distance_function
+        self.class_agnostic = class_agnostic
 
     def get_distances(
         self,
@@ -151,37 +159,53 @@ class VectorizedDistance(Distance):
         if not objects or not candidates:
             return distance_matrix
 
-        object_labels = np.array([o.label for o in objects]).astype(str)
-        candidate_labels = np.array([c.label for c in candidates]).astype(str)
+        if not self.class_agnostic:
+            object_labels = np.array([o.label for o in objects]).astype(str)
+            candidate_labels = np.array([c.label for c in candidates]).astype(str)
 
-        # iterate over labels that are present both in objects and detections
-        for label in np.intersect1d(
-            np.unique(object_labels), np.unique(candidate_labels)
-        ):
-            # generate masks of the subset of object and detections for this label
-            obj_mask = object_labels == label
-            cand_mask = candidate_labels == label
+            # iterate over labels that are present both in objects and detections
+            for label in np.intersect1d(
+                np.unique(object_labels), np.unique(candidate_labels)
+            ):
+                # generate masks of the subset of object and detections for this label
+                obj_mask = object_labels == label
+                cand_mask = candidate_labels == label
 
-            stacked_objects = []
-            for o in objects:
-                if str(o.label) == label:
-                    stacked_objects.append(o.estimate.ravel())
+                stacked_objects = []
+                for o in objects:
+                    if str(o.label) == label:
+                        stacked_objects.append(o.estimate.ravel())
+                stacked_objects = np.stack(stacked_objects)
+
+                stacked_candidates = []
+                for c in candidates:
+                    if str(c.label) == label:
+                        if "Detection" in str(type(c)):
+                            stacked_candidates.append(c.points.ravel())
+                        else:
+                            stacked_candidates.append(c.estimate.ravel())
+                stacked_candidates = np.stack(stacked_candidates)
+
+                # calculate the pairwise distances between objects and candidates with this label
+                # and assign the result to the correct positions inside distance_matrix
+                distance_matrix[np.ix_(cand_mask, obj_mask)] = self._compute_distance(
+                    stacked_candidates, stacked_objects
+                )
+        else:
+            stacked_objects = [o.estimate.ravel() for o in objects]
             stacked_objects = np.stack(stacked_objects)
 
             stacked_candidates = []
             for c in candidates:
-                if str(c.label) == label:
-                    if "Detection" in str(type(c)):
-                        stacked_candidates.append(c.points.ravel())
-                    else:
-                        stacked_candidates.append(c.estimate.ravel())
+                if "Detection" in str(type(c)):
+                    stacked_candidates.append(c.points.ravel())
+                else:
+                    stacked_candidates.append(c.estimate.ravel())
             stacked_candidates = np.stack(stacked_candidates)
 
-            # calculate the pairwise distances between objects and candidates with this label
+            # calculate the pairwise distances between objects and candidates
             # and assign the result to the correct positions inside distance_matrix
-            distance_matrix[np.ix_(cand_mask, obj_mask)] = self._compute_distance(
-                stacked_candidates, stacked_objects
-            )
+            distance_matrix = self._compute_distance(stacked_candidates, stacked_objects)
 
         return distance_matrix
 
@@ -218,6 +242,8 @@ class ScipyDistance(VectorizedDistance):
     metric : str, optional
         Defines the specific Scipy metric to use to calculate the pairwise distances between
         new candidates and objects.
+    class_agnostic : bool
+        Whether distance should be computed between all object/candidate pairs (if true), or only ones with matching labels (false). Defaults to False.
 
     Other kwargs are passed through to cdist
 
@@ -226,9 +252,9 @@ class ScipyDistance(VectorizedDistance):
     [`scipy.spatial.distance.cdist`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.distance.cdist.html)
     """
 
-    def __init__(self, metric: str = "euclidean", **kwargs):
+    def __init__(self, metric: str = "euclidean", class_agnostic: bool = False, **kwargs):
         self.metric = metric
-        super().__init__(distance_function=partial(cdist, metric=self.metric, **kwargs))
+        super().__init__(distance_function=partial(cdist, metric=self.metric, **kwargs), class_agnostic=class_agnostic)
 
 
 def frobenius(detection: "Detection", tracked_object: "TrackedObject") -> float:
@@ -422,7 +448,7 @@ AVAILABLE_VECTORIZED_DISTANCES = (
 )
 
 
-def get_distance_by_name(name: str) -> Distance:
+def get_distance_by_name(name: str, class_agnostic: bool = False) -> Distance:
     """
     Select a distance by name.
 
@@ -430,6 +456,8 @@ def get_distance_by_name(name: str) -> Distance:
     ----------
     name : str
         A string defining the metric to get.
+    class_agnostic : bool
+        Whether distance should be computed between all object/candidate pairs (if true), or only ones with matching labels (false). Defaults to False.
 
     Returns
     -------
@@ -444,14 +472,14 @@ def get_distance_by_name(name: str) -> Distance:
             f" such as {AVAILABLE_VECTORIZED_DISTANCES}."
         )
         distance = _SCALAR_DISTANCE_FUNCTIONS[name]
-        distance_function = ScalarDistance(distance)
+        distance_function = ScalarDistance(distance, class_agnostic=class_agnostic)
     elif name in _SCIPY_DISTANCE_FUNCTIONS:
-        distance_function = ScipyDistance(name)
+        distance_function = ScipyDistance(name, class_agnostic=class_agnostic)
     elif name in _VECTORIZED_DISTANCE_FUNCTIONS:
         if name == "iou_opt":
             warning("iou_opt is deprecated, use iou instead")
         distance = _VECTORIZED_DISTANCE_FUNCTIONS[name]
-        distance_function = VectorizedDistance(distance)
+        distance_function = VectorizedDistance(distance, class_agnostic=class_agnostic)
     else:
         raise ValueError(
             f"Invalid distance '{name}', expecting one of"

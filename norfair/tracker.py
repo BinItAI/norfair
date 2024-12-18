@@ -76,6 +76,9 @@ class Tracker:
         Each tracked object keeps an internal ReID hit counter which tracks how often it's getting recognized by another tracker,
         each time it gets a match this counter goes up, and each time it doesn't it goes down. If it goes below 0 the object gets destroyed.
         If used, this argument (`reid_hit_counter_max`) defines how long an object can live without getting matched to any detections, before it is destroyed.
+    class_agnostic_matching: bool
+        Whether detection/track matching should ignore the class/label of the tracks and detections. If true, distance scores will be calculated for every track
+        detection pair. If false distance will only be calculated between track detection pairs which have matching labels. Defaults to false.
     """
 
     def __init__(
@@ -93,18 +96,19 @@ class Tracker:
         ] = None,
         reid_distance_threshold: float = 0,
         reid_hit_counter_max: Optional[int] = None,
+        class_agnostic_matching: bool = False,
     ):
         self.tracked_objects: Sequence["TrackedObject"] = []
 
         if isinstance(distance_function, str):
-            distance_function = get_distance_by_name(distance_function)
+            distance_function = get_distance_by_name(distance_function, class_agnostic_matching)
         elif isinstance(distance_function, Callable):
             warning(
                 "You are using a scalar distance function. If you want to speed up the"
                 " tracking process please consider using a vectorized distance"
                 f" function such as {AVAILABLE_VECTORIZED_DISTANCES}."
             )
-            distance_function = ScalarDistance(distance_function)
+            distance_function = ScalarDistance(distance_function, class_agnostic_matching)
         else:
             raise ValueError(
                 "Argument `distance_function` should be a string or function but is"
@@ -135,7 +139,7 @@ class Tracker:
         self.distance_threshold = distance_threshold
         self.detection_threshold = detection_threshold
         if reid_distance_function is not None:
-            self.reid_distance_function = ScalarDistance(reid_distance_function)
+            self.reid_distance_function = ScalarDistance(reid_distance_function, class_agnostic_matching)
         else:
             self.reid_distance_function = reid_distance_function
         self.reid_distance_threshold = reid_distance_threshold
