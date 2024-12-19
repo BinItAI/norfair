@@ -79,6 +79,10 @@ class Tracker:
     class_agnostic_matching: bool
         Whether detection/track matching should ignore the class/label of the tracks and detections. If true, distance scores will be calculated for every track
         detection pair. If false distance will only be calculated between track detection pairs which have matching labels. Defaults to false.
+    allow_match_low_scoring: bool
+        If true, any detection which meets distance_threshold can be hit/merged to a TrackedObject regardless of its score, though the detection's points may not
+        be used to update the state of the TrackedObject if the scores of the detection's points don't meet the detection_threshold. If false, only detections with
+        points whose scores meet the detection_threshold can be hit/merged to a TrackedObject. Defaults to true.
     """
 
     def __init__(
@@ -97,6 +101,7 @@ class Tracker:
         reid_distance_threshold: float = 0,
         reid_hit_counter_max: Optional[int] = None,
         class_agnostic_matching: bool = False,
+        allow_match_low_scoring: bool = True,
     ):
         self.tracked_objects: Sequence["TrackedObject"] = []
 
@@ -116,6 +121,7 @@ class Tracker:
             )
         self.distance_function = distance_function
 
+        self.allow_match_low_scoring = allow_match_low_scoring
         self.hit_counter_max = hit_counter_max
         self.reid_hit_counter_max = reid_hit_counter_max
         self.pointwise_hit_counter_max = pointwise_hit_counter_max
@@ -180,6 +186,10 @@ class Tracker:
         List[TrackedObject]
             The list of active tracked objects.
         """
+
+        if not self.allow_match_low_scoring:
+            detections = [det for det in detections if any([s > self.detection_threshold for s in det.scores])]
+
         if coord_transformations is not None:
             for det in detections:
                 det.update_coordinate_transformation(coord_transformations)
