@@ -74,3 +74,6 @@ requires-poetry = ">=2.0"
 profile = "black"
 multi_line_output = 3
 
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
